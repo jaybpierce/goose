@@ -3959,6 +3959,30 @@
   "settings.costTracking.title": {
     "defaultMessage": "费用跟踪"
   },
+  "settings.defaultDirectory.choose": {
+    "defaultMessage": "Choose folder"
+  },
+  "settings.defaultDirectory.clear": {
+    "defaultMessage": "Clear"
+  },
+  "settings.defaultDirectory.description": {
+    "defaultMessage": "Used for new chats and windows unless you choose a directory. Chats started in a window where you chose a directory keep that choice. Remote backend directories and resumed sessions are unchanged. Leave empty to use the recent directory."
+  },
+  "settings.defaultDirectory.invalid": {
+    "defaultMessage": "Choose an existing, accessible local directory (not a symlink). If a saved folder later becomes unavailable, goose will use a recent folder or your home directory."
+  },
+  "settings.defaultDirectory.label": {
+    "defaultMessage": "Default new-session directory"
+  },
+  "settings.defaultDirectory.placeholder": {
+    "defaultMessage": "Absolute local folder path (optional)"
+  },
+  "settings.defaultDirectory.save": {
+    "defaultMessage": "Save"
+  },
+  "settings.defaultDirectory.saveFailed": {
+    "defaultMessage": "Could not save the directory. Please try again."
+  },
   "settings.dockIcon.description": {
     "defaultMessage": "在 Dock 中显示 goose"
   },
