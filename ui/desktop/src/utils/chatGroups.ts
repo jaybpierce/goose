@@ -1,6 +1,8 @@
 import type { SessionListItem } from '../acp/sessions';
 
 export const CHAT_GROUPS_STORAGE_KEY = 'goose.desktop.chatGroups.v1';
+export const CHAT_GROUPS_CHANGED_EVENT = 'goose:chat-groups-changed';
+export const CHAT_SESSION_DRAG_TYPE = 'application/x-goose-chat-session-id';
 
 export interface ChatGroup {
   id: string;
@@ -88,16 +90,25 @@ export function assignChatGroup(
   return { ...state, sessionGroupIds };
 }
 
+export function readChatGroups(): ChatGroupsState {
+  return parseChatGroups(localStorage.getItem(CHAT_GROUPS_STORAGE_KEY));
+}
+
+export function saveChatGroups(state: ChatGroupsState): void {
+  localStorage.setItem(CHAT_GROUPS_STORAGE_KEY, JSON.stringify(state));
+  window.dispatchEvent(new Event(CHAT_GROUPS_CHANGED_EVENT));
+}
+
 export function groupRecentChats(sessions: SessionListItem[], state: ChatGroupsState) {
+  const sessionsByGroup = new Map(state.groups.map((group) => [group.id, [] as SessionListItem[]]));
+  const ungrouped: SessionListItem[] = [];
+  for (const session of sessions) {
+    const group = sessionsByGroup.get(state.sessionGroupIds[session.id]);
+    if (group) group.push(session);
+    else ungrouped.push(session);
+  }
   return {
-    groups: state.groups.map((group) => ({
-      ...group,
-      sessions: sessions.filter((session) => state.sessionGroupIds[session.id] === group.id),
-    })),
-    ungrouped: sessions.filter(
-      (session) =>
-        !state.sessionGroupIds[session.id] ||
-        !state.groups.some((group) => group.id === state.sessionGroupIds[session.id])
-    ),
+    groups: state.groups.map((group) => ({ ...group, sessions: sessionsByGroup.get(group.id)! })),
+    ungrouped,
   };
 }

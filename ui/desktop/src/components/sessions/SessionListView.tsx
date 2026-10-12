@@ -23,7 +23,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { formatMessageTimestamp } from '../../utils/timeUtils';
 import { SearchView } from '../conversation/SearchView';
 import { MainPanelLayout } from '../Layout/MainPanelLayout';
-import { groupSessionsByDate, sessionActivityAt, type DateGroup } from '../../utils/dateUtils';
+import { groupSessionsByDate, sessionActivityAt } from '../../utils/dateUtils';
 import { errorMessage } from '../../utils/conversionUtils';
 import { Skeleton } from '../ui/skeleton';
 import { toast } from 'react-toastify';
@@ -48,6 +48,8 @@ import { acpChatSessionActions } from '../../acp/chatSessionStore';
 import { cancelAcpPermissionRequestsForSession } from '../../acp/permissionRequests';
 import { cancelAcpElicitationRequestsForSession } from '../../acp/elicitationRequests';
 import { getSearchShortcutText } from '../../utils/keyboardShortcuts';
+import { useChatGroups } from '../../hooks/useChatGroups';
+import { CHAT_SESSION_DRAG_TYPE, assignChatGroup, groupRecentChats } from '../../utils/chatGroups';
 
 const i18n = defineMessages({
   editSessionTitle: { id: 'sessions.edit.title', defaultMessage: 'Edit Session Description' },
@@ -137,6 +139,7 @@ const i18n = defineMessages({
     defaultMessage: 'Include ACP sessions',
   },
   acpBadge: { id: 'sessions.acpBadge', defaultMessage: 'ACP' },
+  ungrouped: { id: 'navigationPanel.ungrouped', defaultMessage: 'Ungrouped' },
 });
 
 const INCLUDE_ACP_SESSIONS_KEY = 'sessions_include_acp';
@@ -282,8 +285,9 @@ interface SessionListViewProps {
 const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSession }) => {
   const intl = useIntl();
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
+  const [chatGroups, setChatGroups] = useChatGroups();
+  const [dragOverGroup, setDragOverGroup] = useState<string | null>(null);
   const [isPrefetchingSessions, setIsPrefetchingSessions] = useState(false);
-  const [dateGroups, setDateGroups] = useState<DateGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showSkeleton, setShowSkeleton] = useState(true);
   const [showContent, setShowContent] = useState(false);
@@ -291,6 +295,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
 
   const [visibleGroupsCount, setVisibleGroupsCount] = useState(15);
   const [isScheduledExpanded, setIsScheduledExpanded] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
 
   // Edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -318,20 +323,49 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const memoizedAllDateGroups = useMemo(() => {
-    if (sessions.length > 0) {
-      return groupSessionsByDate(sessions);
+  const { humanSessions, scheduledSessions } = useMemo(() => {
+    const human: SessionListItem[] = [];
+    const scheduled: SessionListItem[] = [];
+    for (const session of sessions) {
+      if (session.sessionType === 'scheduled') scheduled.push(session);
+      else human.push(session);
     }
-    return [];
+    return { humanSessions: human, scheduledSessions: scheduled };
   }, [sessions]);
 
-  const activeDateGroups = useMemo(() => {
-    return debouncedSearchTerm.length > 0 ? memoizedAllDateGroups : dateGroups;
-  }, [debouncedSearchTerm, memoizedAllDateGroups, dateGroups]);
+  const ungroupedLabel = intl.formatMessage(i18n.ungrouped);
+  const historyGroups = useMemo(() => {
+    const { groups, ungrouped } = groupRecentChats(humanSessions, chatGroups);
+    return [
+      ...groups.map((group) => ({
+        id: group.id,
+        name: group.name,
+        dateGroups: groupSessionsByDate(group.sessions),
+      })),
+      {
+        id: '',
+        name: ungroupedLabel,
+        dateGroups: groupSessionsByDate(ungrouped),
+      },
+    ];
+  }, [humanSessions, chatGroups, ungroupedLabel]);
 
-  const visibleDateGroups = useMemo(() => {
-    return activeDateGroups.slice(0, visibleGroupsCount);
-  }, [activeDateGroups, visibleGroupsCount]);
+  const totalDateGroups = useMemo(
+    () =>
+      historyGroups.reduce(
+        (total, group) => total + (collapsedGroups.has(group.id) ? 0 : group.dateGroups.length),
+        0
+      ),
+    [historyGroups, collapsedGroups]
+  );
+  const visibleHistoryGroups = useMemo(() => {
+    let remaining = visibleGroupsCount;
+    return historyGroups.map((group) => {
+      const dateGroups = collapsedGroups.has(group.id) ? [] : group.dateGroups.slice(0, remaining);
+      remaining -= dateGroups.length;
+      return { ...group, dateGroups };
+    });
+  }, [historyGroups, visibleGroupsCount, collapsedGroups]);
 
   const previousSearchTermRef = useRef('');
   useEffect(() => {
@@ -340,11 +374,11 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
     previousSearchTermRef.current = debouncedSearchTerm;
 
     if (isSearching) {
-      setVisibleGroupsCount(memoizedAllDateGroups.length);
+      setVisibleGroupsCount(totalDateGroups);
     } else if (wasSearching) {
       setVisibleGroupsCount(15);
     }
-  }, [debouncedSearchTerm, memoizedAllDateGroups.length]);
+  }, [debouncedSearchTerm, totalDateGroups]);
 
   const loadRemainingSessionPages = useCallback(
     async (initialCursor: string, loadId: number, keyword: string, includeAcp: boolean) => {
@@ -426,11 +460,11 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
 
       if (scrollHeight - scrollTop - clientHeight >= threshold) return;
 
-      if (visibleGroupsCount < activeDateGroups.length) {
-        setVisibleGroupsCount((prev) => Math.min(prev + 5, activeDateGroups.length));
+      if (visibleGroupsCount < totalDateGroups) {
+        setVisibleGroupsCount((prev) => Math.min(prev + 5, totalDateGroups));
       }
     },
-    [visibleGroupsCount, activeDateGroups.length]
+    [visibleGroupsCount, totalDateGroups]
   );
 
   useEffect(() => {
@@ -455,39 +489,10 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
     return () => void 0;
   }, [isLoading, showSkeleton]);
 
-  const { humanSessions, scheduledSessions } = useMemo(() => {
-    const human: SessionListItem[] = [];
-    const scheduled: SessionListItem[] = [];
-    for (const s of sessions) {
-      if (s.sessionType === 'scheduled') {
-        scheduled.push(s);
-      } else {
-        human.push(s);
-      }
-    }
-    return { humanSessions: human, scheduledSessions: scheduled };
-  }, [sessions]);
-
-  const memoizedDateGroups = useMemo(() => {
-    if (humanSessions.length > 0) {
-      return groupSessionsByDate(humanSessions);
-    }
-    return [];
-  }, [humanSessions]);
-
-  const memoizedScheduledDateGroups = useMemo(() => {
-    if (scheduledSessions.length > 0) {
-      return groupSessionsByDate(scheduledSessions);
-    }
-    return [];
-  }, [scheduledSessions]);
-
-  // Update date groups when filtered sessions change
-  useEffect(() => {
-    startTransition(() => {
-      setDateGroups(memoizedDateGroups);
-    });
-  }, [memoizedDateGroups]);
+  const memoizedScheduledDateGroups = useMemo(
+    () => groupSessionsByDate(scheduledSessions),
+    [scheduledSessions]
+  );
 
   // Handle immediate search input (updates search term for debouncing).
   const handleSearch = useCallback((term: string) => {
@@ -663,6 +668,23 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
     });
   }, []);
 
+  const handleDragOver = (groupId: string) => (event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes(CHAT_SESSION_DRAG_TYPE)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDragOverGroup(groupId);
+  };
+
+  const handleDrop = (groupId: string | null) => (event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes(CHAT_SESSION_DRAG_TYPE)) return;
+    event.preventDefault();
+    setDragOverGroup(null);
+    const sessionId = event.dataTransfer.getData(CHAT_SESSION_DRAG_TYPE);
+    if (humanSessions.some((session) => session.id === sessionId)) {
+      setChatGroups((current) => assignChatGroup(current, sessionId, groupId));
+    }
+  };
+
   const SessionItem = React.memo(function SessionItem({
     session,
     onEditClick,
@@ -670,6 +692,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
     onDeleteClick,
     onExportClick,
     onOpenInNewWindow,
+    draggable = false,
   }: {
     session: SessionListItem;
     onEditClick: (session: SessionListItem) => void;
@@ -677,6 +700,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
     onDeleteClick: (session: SessionListItem) => void;
     onExportClick: (session: SessionListItem, format: SessionExportFormat) => void;
     onOpenInNewWindow: (session: SessionListItem, e: React.MouseEvent) => void;
+    draggable?: boolean;
   }) {
     const handleEditClick = useCallback(
       (e: React.MouseEvent) => {
@@ -725,6 +749,12 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
     return (
       <Card
         onClick={handleCardClick}
+        draggable={draggable}
+        onDragStart={(event) => {
+          if (!draggable) return;
+          event.dataTransfer.setData(CHAT_SESSION_DRAG_TYPE, session.id);
+          event.dataTransfer.effectAllowed = 'move';
+        }}
         className="h-full py-3 px-4 hover:shadow-default cursor-pointer transition-all duration-150 flex flex-col justify-between relative group"
       >
         <div>
@@ -861,7 +891,7 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
       );
     }
 
-    if (sessions.length === 0) {
+    if (sessions.length === 0 && !isPrefetchingSessions && chatGroups.groups.length === 0) {
       // `sessions` holds the keyword-filtered set, so an empty result while searching
       // means "no matches" rather than "no sessions at all".
       if (debouncedSearchTerm) {
@@ -884,31 +914,69 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
 
     return (
       <div className="space-y-8">
-        {visibleDateGroups.map((group) => (
-          <div key={group.label} className="space-y-4">
-            <div className="sticky top-0 z-10 bg-background-primary/95 backdrop-blur-sm">
-              <h2 className="text-text-secondary">{group.label}</h2>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-              {group.sessions.map((session) => (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  onEditClick={handleEditSession}
-                  onDuplicateClick={handleDuplicateSession}
-                  onDeleteClick={handleDeleteSession}
-                  onExportClick={handleExportSession}
-                  onOpenInNewWindow={handleOpenInNewWindow}
-                />
-              ))}
-            </div>
-          </div>
+        {sessions.length === 0 && !isPrefetchingSessions && (
+          <p className="text-text-secondary">
+            {intl.formatMessage(debouncedSearchTerm ? i18n.noMatching : i18n.noSessions)}
+          </p>
+        )}
+        {visibleHistoryGroups.map((chatGroup) => (
+          <section
+            key={chatGroup.id}
+            aria-label={chatGroup.name}
+            onDragOver={handleDragOver(chatGroup.id)}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node))
+                setDragOverGroup(null);
+            }}
+            onDrop={handleDrop(chatGroup.id || null)}
+            className={`space-y-4 rounded-lg p-2 ${dragOverGroup === chatGroup.id ? 'bg-background-secondary' : ''}`}
+          >
+            <button
+              type="button"
+              aria-expanded={!collapsedGroups.has(chatGroup.id)}
+              onClick={() =>
+                setCollapsedGroups((current) => {
+                  const next = new Set(current);
+                  if (next.has(chatGroup.id)) next.delete(chatGroup.id);
+                  else next.add(chatGroup.id);
+                  return next;
+                })
+              }
+              className="sticky top-0 z-10 w-full flex items-center gap-2 bg-background-primary/95 backdrop-blur-sm text-left rounded-lg hover:bg-background-secondary"
+            >
+              {collapsedGroups.has(chatGroup.id) ? (
+                <ChevronRight className="w-4 h-4 text-text-secondary" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-text-secondary" />
+              )}
+              <span className="text-xl font-medium text-text-primary">{chatGroup.name}</span>
+            </button>
+            {chatGroup.dateGroups.map((dateGroup) => (
+              <div key={dateGroup.label} className="space-y-4">
+                <div className="sticky top-0 z-10 bg-background-primary/95 backdrop-blur-sm">
+                  <h3 className="text-text-secondary">{dateGroup.label}</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                  {dateGroup.sessions.map((session) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      draggable
+                      onEditClick={handleEditSession}
+                      onDuplicateClick={handleDuplicateSession}
+                      onDeleteClick={handleDeleteSession}
+                      onExportClick={handleExportSession}
+                      onOpenInNewWindow={handleOpenInNewWindow}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
         ))}
 
-        {!debouncedSearchTerm &&
-          visibleGroupsCount >= activeDateGroups.length &&
-          memoizedScheduledDateGroups.length > 0 && (
-            <div className="space-y-4">
+        {visibleGroupsCount >= totalDateGroups && memoizedScheduledDateGroups.length > 0 && (
+          <div className="space-y-4">
             <button
               onClick={() => setIsScheduledExpanded((v) => !v)}
               aria-expanded={isScheduledExpanded}
@@ -921,7 +989,9 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
                   {intl.formatMessage(i18n.scheduledJobs)}
                 </h2>
                 <span className="text-xs text-text-tertiary bg-background-secondary px-2 py-0.5 rounded-full">
-                  {intl.formatMessage(i18n.scheduledJobsCount, { count: scheduledSessions.length })}
+                  {intl.formatMessage(i18n.scheduledJobsCount, {
+                    count: scheduledSessions.length,
+                  })}
                 </span>
               </div>
               {isScheduledExpanded ? (
@@ -955,8 +1025,8 @@ const SessionListView: React.FC<SessionListViewProps> = React.memo(({ onSelectSe
                 ))}
               </div>
             )}
-            </div>
-          )}
+          </div>
+        )}
 
         {isPrefetchingSessions && (
           <div className="flex justify-center py-8">

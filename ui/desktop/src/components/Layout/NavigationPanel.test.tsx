@@ -152,11 +152,11 @@ describe('Navigation chat groups', () => {
     fireEvent.change(name, { target: { value: 'Not saved' } });
     fireEvent.keyDown(name, { key: 'Escape' });
     expect(screen.queryByText('Not saved')).not.toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem(CHAT_GROUPS_STORAGE_KEY)!).groups).toEqual([]);
+    expect(localStorage.getItem(CHAT_GROUPS_STORAGE_KEY)).toBeNull();
     const external = { types: ['text/plain'], getData: () => 'session-a' };
     const ungrouped = screen.getByText('Ungrouped').parentElement!;
     fireEvent.dragOver(ungrouped, { dataTransfer: external });
     fireEvent.drop(ungrouped, { dataTransfer: external });
-    expect(JSON.parse(localStorage.getItem(CHAT_GROUPS_STORAGE_KEY)!).sessionGroupIds).toEqual({});
+    expect(localStorage.getItem(CHAT_GROUPS_STORAGE_KEY)).toBeNull();
   });
 });

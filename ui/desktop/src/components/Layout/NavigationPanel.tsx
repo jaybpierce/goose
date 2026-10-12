@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useNavigationContext } from './NavigationContext';
 import { useConfig } from '../ConfigContext';
 import { useNavigationSessions } from '../../hooks/useNavigationSessions';
+import { useChatGroups } from '../../hooks/useChatGroups';
 import {
   NAV_ITEMS,
   SETTINGS_NAV_ITEM,
@@ -19,12 +20,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip';
 import { formatMessageTimestamp } from '../../utils/timeUtils';
 import { cn } from '../../utils';
 import {
-  CHAT_GROUPS_STORAGE_KEY,
+  CHAT_SESSION_DRAG_TYPE,
   assignChatGroup,
   createChatGroup,
   deleteChatGroup,
   groupRecentChats,
-  parseChatGroups,
   renameChatGroup,
 } from '../../utils/chatGroups';
 import { defineMessages, useIntl } from '../../i18n';
@@ -102,8 +102,6 @@ const i18n = defineMessages({
     defaultMessage: 'Return to active Live voice',
   },
 });
-
-const CHAT_SESSION_DRAG_TYPE = 'application/x-goose-chat-session-id';
 
 const navItemClass = (active: boolean) =>
   cn(
@@ -335,9 +333,7 @@ export const Navigation: React.FC<{
   }, [isNavExpanded, fetchSessions]);
 
   const [isChatsExpanded, setIsChatsExpanded] = useState(true);
-  const [chatGroups, setChatGroups] = useState(() =>
-    parseChatGroups(localStorage.getItem(CHAT_GROUPS_STORAGE_KEY))
-  );
+  const [chatGroups, setChatGroups] = useChatGroups();
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const cancelNewGroupRef = useRef(false);
@@ -347,18 +343,6 @@ export const Navigation: React.FC<{
     () => groupRecentChats(recentSessions, chatGroups),
     [recentSessions, chatGroups]
   );
-
-  useEffect(() => {
-    localStorage.setItem(CHAT_GROUPS_STORAGE_KEY, JSON.stringify(chatGroups));
-  }, [chatGroups]);
-
-  useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === CHAT_GROUPS_STORAGE_KEY) setChatGroups(parseChatGroups(event.newValue));
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
 
   const saveNewGroup = () => {
     if (!cancelNewGroupRef.current && newGroupName.trim()) {
