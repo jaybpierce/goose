@@ -2381,8 +2381,20 @@
   "navigation.itemSkills": {
     "defaultMessage": "スキル"
   },
+  "navigationPanel.addGroup": {
+    "defaultMessage": "New chat group"
+  },
   "navigationPanel.chats": {
     "defaultMessage": "チャット"
+  },
+  "navigationPanel.confirmDeleteGroup": {
+    "defaultMessage": "Delete group “{name}”? Its chats will move to Ungrouped."
+  },
+  "navigationPanel.deleteGroup": {
+    "defaultMessage": "Delete group"
+  },
+  "navigationPanel.groupName": {
+    "defaultMessage": "Group name"
   },
   "navigationPanel.loadingChats": {
     "defaultMessage": "チャットを読み込み中…"
@@ -2416,6 +2428,9 @@
   },
   "navigationPanel.statusUnread": {
     "defaultMessage": "未読のアクティビティ"
+  },
+  "navigationPanel.ungrouped": {
+    "defaultMessage": "Ungrouped"
   },
   "navigationPanel.untitledSession": {
     "defaultMessage": "無題のセッション"

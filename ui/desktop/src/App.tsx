@@ -25,6 +25,7 @@ interface PairRouteState {
   resumeSessionId?: string;
   initialMessage?: UserInput;
   noAutoSubmit?: boolean;
+  useDefaultDirectory?: boolean;
 }
 import SettingsView, { SettingsViewOptions } from './components/settings/SettingsView';
 import SessionsView from './components/sessions/SessionsView';
@@ -50,7 +51,7 @@ import { View, ViewOptions } from './utils/navigationUtils';
 
 import { useNavigation } from './hooks/useNavigation';
 import { errorMessage } from './utils/conversionUtils';
-import { getInitialWorkingDir } from './utils/workingDir';
+import { getRequestedWorkingDir, getDefaultNewSessionWorkingDir } from './utils/workingDir';
 import { usePageViewTracking } from './hooks/useAnalytics';
 import { trackErrorWithContext } from './utils/analytics';
 import { AppEvents } from './constants/events';
@@ -122,7 +123,8 @@ export const PairRouteWrapper = ({
 
       (async () => {
         try {
-          const newSession = await createSession(getInitialWorkingDir(), {
+          const dir = await getDefaultNewSessionWorkingDir(routeState.useDefaultDirectory);
+          const newSession = await createSession(dir, {
             recipeDeeplink: recipeDeeplinkFromConfig,
             recipeId: recipeIdFromConfig,
             allExtensions: extensionsList,
@@ -167,6 +169,7 @@ export const PairRouteWrapper = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     initialMessage,
+    routeState.useDefaultDirectory,
     recipeDeeplinkFromConfig,
     recipeIdFromConfig,
     resumeSessionId,
@@ -459,7 +462,7 @@ export function AppInner() {
       if ((isMac ? event.metaKey : event.ctrlKey) && event.key === 'n') {
         event.preventDefault();
         try {
-          window.electron.createChatWindow({ dir: getInitialWorkingDir() });
+          window.electron.createChatWindow({ dir: getRequestedWorkingDir() });
         } catch (error) {
           console.error('Error creating new window:', error);
         }
@@ -572,7 +575,8 @@ export function AppInner() {
   useEffect(() => {
     const handleSetInitialMessage = async (_event: IpcRendererEvent, ...args: unknown[]) => {
       const initialMessage = args[0] as string;
-      const options = (args[1] as { noAutoSubmit?: boolean } | undefined) || {};
+      const options =
+        (args[1] as { noAutoSubmit?: boolean; useDefaultDirectory?: boolean } | undefined) || {};
 
       if (initialMessage && !isProcessingRef.current) {
         isProcessingRef.current = true;
@@ -580,6 +584,7 @@ export function AppInner() {
           state: {
             initialMessage: { msg: initialMessage, images: [] },
             noAutoSubmit: options.noAutoSubmit,
+            useDefaultDirectory: options.useDefaultDirectory,
           },
         });
         setTimeout(() => {

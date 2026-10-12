@@ -62,14 +62,17 @@ import { openExternalUrl } from './utils/openExternalUrl';
 import { buildCSP, leaseBackendOrigin, shouldApplyRendererCsp } from './utils/csp';
 import { resolveWorkingDir } from './utils/workingDir';
 import {
+  isUsableLocalDirectory,
+  selectNewSessionDirectory,
+} from './utils/defaultNewSessionDirectory';
+import {
   DesktopFileAccess,
   isAuthorizedFileAccessRequest,
   readSelectedRecipe,
 } from './desktopFileAccess';
 
 function shouldSetupUpdater(): boolean {
-  // Setup updater if either the flag is enabled OR dev updates are enabled
-  return UPDATES_ENABLED || process.env.ENABLE_DEV_UPDATES === 'true';
+  return UPDATES_ENABLED;
 }
 
 // =======================================================================
@@ -180,6 +183,24 @@ function translateMenuLabels(items: MenuItem[]): void {
 
 // Settings management
 const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json');
+let warnedInvalidDefaultDirectory: string | null = null;
+
+function defaultNewSessionDirectory(requested?: string | null): string {
+  const preferred = getSettings().defaultNewSessionDirectory;
+  const result = selectNewSessionDirectory(requested, preferred, loadRecentDirs(), os.homedir());
+  if (result.invalidPreference && warnedInvalidDefaultDirectory !== preferred) {
+    warnedInvalidDefaultDirectory = preferred;
+    dialog.showMessageBoxSync({
+      type: 'warning',
+      title: 'Default new-session directory unavailable',
+      message: 'Your default new-session directory is not an accessible local folder.',
+      detail: `Using ${result.directory} instead. Choose an existing local folder in Settings → Chat, or clear the preference.`,
+      buttons: ['OK'],
+    });
+  }
+  return result.directory;
+}
+
 const STARTUP_LOGS_DIR = path.join(app.getPath('userData'), 'logs', 'startup');
 const validLanguageSettings = new Set<Settings['language']>([
   'system',
@@ -447,14 +468,11 @@ if (process.platform !== 'darwin') {
         // If it's a bot/recipe URL, handle it directly by creating a new window
         if (parsedUrl.hostname === 'bot' || parsedUrl.hostname === 'recipe') {
           app.whenReady().then(async () => {
-            const recentDirs = loadRecentDirs();
-            const openDir = recentDirs.length > 0 ? recentDirs[0] : null;
-
             const deeplinkData = parseRecipeDeeplink(protocolUrl);
             const scheduledJobId = parsedUrl.searchParams.get('scheduledJob');
 
             await createChat(app, {
-              dir: openDir || undefined,
+              dir: undefined,
               recipeDeeplink: deeplinkData?.config,
               scheduledJobId: scheduledJobId || undefined,
               recipeParameters: deeplinkData?.parameters,
@@ -466,11 +484,9 @@ if (process.platform !== 'darwin') {
         // Handle new-session URL by creating a fresh chat window
         if (parsedUrl.hostname === 'new-session') {
           app.whenReady().then(async () => {
-            const recentDirs = loadRecentDirs();
-            const openDir = recentDirs.length > 0 ? recentDirs[0] : null;
             const prompt = parsedUrl.searchParams.get('prompt') || undefined;
             await createChat(app, {
-              dir: openDir || undefined,
+              dir: undefined,
               initialMessage: prompt,
               initialMessageNoAutoSubmit: prompt !== undefined,
             });
@@ -480,9 +496,7 @@ if (process.platform !== 'darwin') {
 
         if (parsedUrl.hostname === 'resume') {
           app.whenReady().then(async () => {
-            const recentDirs = loadRecentDirs();
-            const openDir = recentDirs.length > 0 ? recentDirs[0] : null;
-            await createResumeChatWindow(parsedUrl, openDir || undefined);
+            await createResumeChatWindow(parsedUrl);
           });
           return;
         }
@@ -501,9 +515,7 @@ if (process.platform !== 'darwin') {
         mainWindow.focus();
       } else if (!protocolUrl) {
         app.whenReady().then(async () => {
-          const recentDirs = loadRecentDirs();
-          const openDir = recentDirs.length > 0 ? recentDirs[0] : null;
-          await createChat(app, { dir: openDir || undefined });
+          await createChat(app);
         });
       }
     });
@@ -571,33 +583,27 @@ async function createResumeChatWindow(parsedUrl: URL, dir?: string): Promise<boo
     return false;
   }
 
-  await createChat(app, { dir, resumeSessionId });
+  await createChat(app, { dir: dir ?? loadRecentDirs()[0], resumeSessionId });
   return true;
 }
 
 async function handleProtocolUrl(url: string, parsedUrl: URL) {
   if (!url) return;
 
-  const recentDirs = loadRecentDirs();
-  const openDir = recentDirs.length > 0 ? recentDirs[0] : null;
-
   if (parsedUrl.hostname === 'new-session') {
     const prompt = parsedUrl.searchParams.get('prompt') || undefined;
     await createChat(app, {
-      dir: openDir || undefined,
+      dir: undefined,
       initialMessage: prompt,
       initialMessageNoAutoSubmit: prompt !== undefined,
     });
     return;
   } else if (parsedUrl.hostname === 'resume') {
-    await createResumeChatWindow(parsedUrl, openDir || undefined);
+    await createResumeChatWindow(parsedUrl);
     return;
   } else if (parsedUrl.hostname === 'bot' || parsedUrl.hostname === 'recipe') {
     const existingWindows = BrowserWindow.getAllWindows();
-    const targetWindow =
-      existingWindows.length > 0
-        ? existingWindows[0]
-        : await createChat(app, { dir: openDir || undefined });
+    const targetWindow = existingWindows.length > 0 ? existingWindows[0] : await createChat(app);
     if (!targetWindow) return;
     await processProtocolUrl(url, parsedUrl, targetWindow);
   } else {
@@ -610,7 +616,7 @@ async function handleProtocolUrl(url: string, parsedUrl: URL) {
       }
       targetWindow.focus();
     } else {
-      targetWindow = await createChat(app, { dir: openDir || undefined });
+      targetWindow = await createChat(app);
     }
 
     if (!targetWindow) return;
@@ -624,9 +630,6 @@ async function handleProtocolUrl(url: string, parsedUrl: URL) {
 }
 
 async function processProtocolUrl(url: string, parsedUrl: URL, window: BrowserWindow) {
-  const recentDirs = loadRecentDirs();
-  const openDir = recentDirs.length > 0 ? recentDirs[0] : null;
-
   if (parsedUrl.hostname === 'extension') {
     window.webContents.send('add-extension', url);
   } else if (parsedUrl.hostname === 'bot' || parsedUrl.hostname === 'recipe') {
@@ -634,7 +637,7 @@ async function processProtocolUrl(url: string, parsedUrl: URL, window: BrowserWi
     const scheduledJobId = parsedUrl.searchParams.get('scheduledJob');
 
     await createChat(app, {
-      dir: openDir || undefined,
+      dir: undefined,
       recipeDeeplink: deeplinkData?.config,
       scheduledJobId: scheduledJobId || undefined,
       recipeParameters: deeplinkData?.parameters,
@@ -655,16 +658,13 @@ app.on('open-url', async (_event, url) => {
 
     await app.whenReady();
 
-    const recentDirs = loadRecentDirs();
-    const openDir = recentDirs.length > 0 ? recentDirs[0] : null;
-
     // Handle new-session URL by creating a fresh chat window
     if (parsedUrl.hostname === 'new-session') {
       log.info('[Main] Detected new-session URL, creating new chat window');
       openUrlHandledLaunch = true;
       const prompt = parsedUrl.searchParams.get('prompt') || undefined;
       await createChat(app, {
-        dir: openDir || undefined,
+        dir: undefined,
         initialMessage: prompt,
         initialMessageNoAutoSubmit: prompt !== undefined,
       });
@@ -673,7 +673,7 @@ app.on('open-url', async (_event, url) => {
 
     if (parsedUrl.hostname === 'resume') {
       log.info('[Main] Detected resume URL, creating session resume window');
-      openUrlHandledLaunch = await createResumeChatWindow(parsedUrl, openDir || undefined);
+      openUrlHandledLaunch = await createResumeChatWindow(parsedUrl);
       return;
     }
 
@@ -688,7 +688,7 @@ app.on('open-url', async (_event, url) => {
       const scheduledJobId = parsedUrl.searchParams.get('scheduledJob');
 
       await createChat(app, {
-        dir: openDir || undefined,
+        dir: undefined,
         recipeDeeplink: deeplinkData?.config,
         scheduledJobId: scheduledJobId || undefined,
         recipeParameters: deeplinkData?.parameters,
@@ -708,7 +708,7 @@ app.on('open-url', async (_event, url) => {
       }
     } else {
       openUrlHandledLaunch = true;
-      const newWindow = await createChat(app, { dir: openDir || undefined });
+      const newWindow = await createChat(app);
       if (!newWindow) return;
       queuePendingDeepLink(newWindow.id, url);
     }
@@ -802,7 +802,7 @@ const parseArgs = () => {
     }
   }
 
-  if (!dirPath && process.stdin.isTTY) {
+  if (!dirPath && !getSettings().defaultNewSessionDirectory?.trim() && process.stdin.isTTY) {
     try {
       const cwd = process.cwd();
       if (path.parse(cwd).root !== cwd) {
@@ -1056,7 +1056,15 @@ const createChat = async (
   }
 
   const serverSecret = externalBackend ? externalBackend.secret : GENERATED_SECRET;
-  let workingDir = resolveWorkingDir(externalBackend?.workingDir, dir, os.homedir());
+  let workingDir = resolveWorkingDir(
+    externalBackend?.workingDir,
+    resumeSessionId
+      ? dir
+      : externalBackend
+        ? dir || loadRecentDirs()[0]
+        : defaultNewSessionDirectory(dir),
+    os.homedir()
+  );
   let gooseServeLease: GooseServeLease | null = null;
 
   if (externalBackend) {
@@ -1642,9 +1650,7 @@ const showWindow = async () => {
 
   if (windows.length === 0) {
     log.info('No windows are open, creating a new one...');
-    const recentDirs = loadRecentDirs();
-    const openDir = recentDirs.length > 0 ? recentDirs[0] : null;
-    await createChat(app, { dir: openDir || undefined });
+    await createChat(app);
     return;
   }
 
@@ -1930,6 +1936,7 @@ const validSettingKeys: Set<string> = new Set([
   'seenAnnouncementIds',
   'disableAutoDownload',
   'recentModels',
+  'defaultNewSessionDirectory',
 ]);
 
 ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
@@ -1939,6 +1946,13 @@ ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
     return;
   }
 
+  if (
+    key === 'defaultNewSessionDirectory' &&
+    (typeof value !== 'string' || (value.trim() !== '' && !path.isAbsolute(value.trim())))
+  ) {
+    throw new Error('Default new-session directory must be an absolute local path or empty');
+  }
+
   if (key === 'language' && !isValidLanguageSetting(value)) {
     console.error(`Invalid language setting rejected: ${String(value)}`);
     return;
@@ -1946,7 +1960,8 @@ ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
 
   const settings = getSettings();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (settings as any)[key] = value;
+  (settings as any)[key] = key === 'defaultNewSessionDirectory' ? (value as string).trim() : value;
+  if (key === 'defaultNewSessionDirectory') warnedInvalidDefaultDirectory = null;
   fsSync.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 
   if (key === 'language') {
@@ -1961,6 +1976,17 @@ ipcMain.handle('set-setting', (_event, key: SettingKey, value: unknown) => {
   if (key === 'disableAutoDownload') {
     setAutoDownloadDisabled(value as boolean);
   }
+});
+
+ipcMain.handle(
+  'check-local-directory',
+  (_event, dir: string) => typeof dir === 'string' && isUsableLocalDirectory(dir)
+);
+
+ipcMain.handle('resolve-default-new-session-directory', (_event, currentDir: string) => {
+  const preferred = getSettings().defaultNewSessionDirectory;
+  if (!preferred?.trim()) return currentDir;
+  return defaultNewSessionDirectory();
 });
 
 ipcMain.handle('get-secret-key', (event) => {
@@ -2362,9 +2388,7 @@ ipcMain.handle('get-allowed-extensions', async () => {
 });
 
 const createNewWindow = async (app: App, dir?: string | null) => {
-  const recentDirs = loadRecentDirs();
-  const openDir = dir || (recentDirs.length > 0 ? recentDirs[0] : undefined);
-  return await createChat(app, { dir: openDir });
+  return await createChat(app, { dir: dir || undefined });
 };
 
 const focusWindow = () => {
@@ -2421,7 +2445,9 @@ async function appMain() {
   // Ensure Windows shims are available before any MCP processes are spawned
   await ensureWinShims();
 
-  registerUpdateIpcHandlers();
+  if (UPDATES_ENABLED) {
+    registerUpdateIpcHandlers();
+  }
 
   // Handle microphone permission requests
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -2611,7 +2637,7 @@ async function appMain() {
           label: menuT('New Chat Window'),
           accelerator: shortcuts.newChatWindow,
           click() {
-            ipcMain.emit('create-chat-window');
+            createNewWindow(app);
           },
         })
       );
@@ -2789,13 +2815,9 @@ async function appMain() {
   ipcMain.on('create-chat-window', (event, options = {}) => {
     const { query, dir, resumeSessionId, viewType, recipeId } = options;
 
-    let resolvedDir = dir;
-    if (!resolvedDir?.trim()) {
-      const recentDirs = loadRecentDirs();
-      resolvedDir = recentDirs.length > 0 ? recentDirs[0] : undefined;
-    }
+    const resolvedDir = dir?.trim() ? dir : undefined;
 
-    const isFromLauncher = query && !resumeSessionId && !viewType && !recipeId;
+    const isFromLauncher = query && !resolvedDir && !resumeSessionId && !viewType && !recipeId;
 
     if (isFromLauncher) {
       const senderWindow = BrowserWindow.fromWebContents(event.sender);
@@ -2810,7 +2832,7 @@ async function appMain() {
         const targetWindow = existingWindows[0];
         targetWindow.show();
         targetWindow.focus();
-        targetWindow.webContents.send('set-initial-message', query);
+        targetWindow.webContents.send('set-initial-message', query, { useDefaultDirectory: true });
         return;
       }
     }

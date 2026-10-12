@@ -2381,8 +2381,20 @@
   "navigation.itemSkills": {
     "defaultMessage": "Kỹ năng"
   },
+  "navigationPanel.addGroup": {
+    "defaultMessage": "New chat group"
+  },
   "navigationPanel.chats": {
     "defaultMessage": "Cuộc trò chuyện"
+  },
+  "navigationPanel.confirmDeleteGroup": {
+    "defaultMessage": "Delete group “{name}”? Its chats will move to Ungrouped."
+  },
+  "navigationPanel.deleteGroup": {
+    "defaultMessage": "Delete group"
+  },
+  "navigationPanel.groupName": {
+    "defaultMessage": "Group name"
   },
   "navigationPanel.loadingChats": {
     "defaultMessage": "Đang tải cuộc trò chuyện…"
@@ -2416,6 +2428,9 @@
   },
   "navigationPanel.statusUnread": {
     "defaultMessage": "Hoạt động chưa đọc"
+  },
+  "navigationPanel.ungrouped": {
+    "defaultMessage": "Ungrouped"
   },
   "navigationPanel.untitledSession": {
     "defaultMessage": "Phiên chưa đặt tên"

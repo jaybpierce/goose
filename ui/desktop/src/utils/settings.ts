@@ -42,6 +42,7 @@ export interface Settings {
   enableWakelock: boolean;
   enableNotifications: boolean;
   spellcheckEnabled: boolean;
+  defaultNewSessionDirectory: string;
   // Key is kept as `externalGoosed` for backward compat with persisted user settings.
   externalGoosed: ExternalBackendConfig;
   globalShortcut?: string | null;
@@ -81,6 +82,7 @@ export const defaultSettings: Settings = {
   enableWakelock: false,
   enableNotifications: true,
   spellcheckEnabled: true,
+  defaultNewSessionDirectory: '',
   keyboardShortcuts: defaultKeyboardShortcuts,
   externalGoosed: {
     enabled: false,

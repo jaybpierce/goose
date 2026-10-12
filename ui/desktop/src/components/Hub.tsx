@@ -16,7 +16,7 @@ import { ChatState } from '../types/chatState';
 import 'react-toastify/dist/ReactToastify.css';
 import { View, ViewOptions } from '../utils/navigationUtils';
 import { useConfig } from './ConfigContext';
-import { getEffectiveWorkingDir, getInitialWorkingDir } from '../utils/workingDir';
+import { getDefaultNewSessionWorkingDir, getInitialWorkingDir } from '../utils/workingDir';
 import { createSession } from '../sessions';
 import LoadingGoose from './LoadingGoose';
 import { UserInput } from '../types/message';
@@ -75,7 +75,7 @@ export default function Hub({
   // creation, so a configured remote directory may have changed since then.
   useEffect(() => {
     let active = true;
-    void getEffectiveWorkingDir().then((dir) => {
+    void getDefaultNewSessionWorkingDir().then((dir) => {
       if (active && !userSelectedWorkingDirRef.current) setWorkingDir(dir);
     });
     return () => {
@@ -155,7 +155,9 @@ export default function Hub({
 
       // Resolve the effective directory at submit time: the IPC lookup may still
       // be pending when the user submits, and an explicit pick must win.
-      const dir = userSelectedWorkingDirRef.current ? workingDir : await getEffectiveWorkingDir();
+      const dir = userSelectedWorkingDirRef.current
+        ? workingDir
+        : await getDefaultNewSessionWorkingDir();
       const session = await createSession(dir, sessionOptions);
       setNextChatExtensionDraft(null);
       return session;

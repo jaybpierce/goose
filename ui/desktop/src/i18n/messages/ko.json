@@ -2381,8 +2381,20 @@
   "navigation.itemSkills": {
     "defaultMessage": "스킬"
   },
+  "navigationPanel.addGroup": {
+    "defaultMessage": "New chat group"
+  },
   "navigationPanel.chats": {
     "defaultMessage": "채팅"
+  },
+  "navigationPanel.confirmDeleteGroup": {
+    "defaultMessage": "Delete group “{name}”? Its chats will move to Ungrouped."
+  },
+  "navigationPanel.deleteGroup": {
+    "defaultMessage": "Delete group"
+  },
+  "navigationPanel.groupName": {
+    "defaultMessage": "Group name"
   },
   "navigationPanel.loadingChats": {
     "defaultMessage": "채팅 불러오는 중…"
@@ -2416,6 +2428,9 @@
   },
   "navigationPanel.statusUnread": {
     "defaultMessage": "읽지 않은 활동"
+  },
+  "navigationPanel.ungrouped": {
+    "defaultMessage": "Ungrouped"
   },
   "navigationPanel.untitledSession": {
     "defaultMessage": "제목 없는 세션"

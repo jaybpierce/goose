@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router';
-import { AudioLines, ChevronDown, ChevronRight } from 'lucide-react';
+import { AudioLines, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useNavigationContext } from './NavigationContext';
 import { useConfig } from '../ConfigContext';
@@ -18,7 +18,15 @@ import { acpRenameSession, type SessionListItem } from '../../acp/sessions';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip';
 import { formatMessageTimestamp } from '../../utils/timeUtils';
 import { cn } from '../../utils';
-import type { ProjectGroup } from '../../utils/projectSessions';
+import {
+  CHAT_GROUPS_STORAGE_KEY,
+  assignChatGroup,
+  createChatGroup,
+  deleteChatGroup,
+  groupRecentChats,
+  parseChatGroups,
+  renameChatGroup,
+} from '../../utils/chatGroups';
 import { defineMessages, useIntl } from '../../i18n';
 
 type StreamState = 'idle' | 'loading' | 'streaming' | 'error';
@@ -29,6 +37,14 @@ interface SessionStatus {
 }
 
 const i18n = defineMessages({
+  addGroup: { id: 'navigationPanel.addGroup', defaultMessage: 'New chat group' },
+  groupName: { id: 'navigationPanel.groupName', defaultMessage: 'Group name' },
+  ungrouped: { id: 'navigationPanel.ungrouped', defaultMessage: 'Ungrouped' },
+  deleteGroup: { id: 'navigationPanel.deleteGroup', defaultMessage: 'Delete group' },
+  confirmDeleteGroup: {
+    id: 'navigationPanel.confirmDeleteGroup',
+    defaultMessage: 'Delete group “{name}”? Its chats will move to Ungrouped.',
+  },
   chats: {
     id: 'navigationPanel.chats',
     defaultMessage: 'Chats',
@@ -87,6 +103,8 @@ const i18n = defineMessages({
   },
 });
 
+const CHAT_SESSION_DRAG_TYPE = 'application/x-goose-chat-session-id';
+
 const navItemClass = (active: boolean) =>
   cn(
     'flex flex-row items-center gap-3 outline-none no-drag w-full',
@@ -123,6 +141,7 @@ interface SessionRowProps {
   status: SessionStatus | undefined;
   onClick: () => void;
   onRenamed: () => void;
+  onDragStart?: (event: React.DragEvent<HTMLDivElement>) => void;
 }
 
 const formatTimestamp = (value?: string): string | null => {
@@ -179,6 +198,7 @@ const SessionRow: React.FC<SessionRowProps> = ({
   status,
   onClick,
   onRenamed,
+  onDragStart,
 }) => {
   const intl = useIntl();
   const [isEditing, setIsEditing] = useState(false);
@@ -199,6 +219,8 @@ const SessionRow: React.FC<SessionRowProps> = ({
     <Tooltip open={tooltipOpen && !isEditing} onOpenChange={setTooltipOpen} delayDuration={400}>
       <TooltipTrigger asChild>
         <div
+          draggable={!isEditing}
+          onDragStart={onDragStart}
           onClick={() => !isEditing && onClick()}
           className={cn(
             'flex items-center gap-2 px-3 py-1.5 rounded-full cursor-pointer text-sm',
@@ -263,7 +285,6 @@ export const Navigation: React.FC<{
 
   const {
     recentSessions,
-    recentSessionsByProject,
     isLoadingSessions,
     activeSessionId,
     fetchSessions,
@@ -314,19 +335,79 @@ export const Navigation: React.FC<{
   }, [isNavExpanded, fetchSessions]);
 
   const [isChatsExpanded, setIsChatsExpanded] = useState(true);
-  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set());
+  const [chatGroups, setChatGroups] = useState(() =>
+    parseChatGroups(localStorage.getItem(CHAT_GROUPS_STORAGE_KEY))
+  );
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const cancelNewGroupRef = useRef(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [dragOverGroup, setDragOverGroup] = useState<string | null>(null);
+  const recentChatsByGroup = useMemo(
+    () => groupRecentChats(recentSessions, chatGroups),
+    [recentSessions, chatGroups]
+  );
 
-  const toggleProjectCollapsed = useCallback((path: string) => {
-    setCollapsedProjects((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
+  useEffect(() => {
+    localStorage.setItem(CHAT_GROUPS_STORAGE_KEY, JSON.stringify(chatGroups));
+  }, [chatGroups]);
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === CHAT_GROUPS_STORAGE_KEY) setChatGroups(parseChatGroups(event.newValue));
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
+
+  const saveNewGroup = () => {
+    if (!cancelNewGroupRef.current && newGroupName.trim()) {
+      setChatGroups((current) =>
+        createChatGroup(current, window.crypto.randomUUID(), newGroupName)
+      );
+    }
+    cancelNewGroupRef.current = true;
+    setNewGroupName('');
+    setCreatingGroup(false);
+  };
+
+  const handleDragStart = (sessionId: string) => (event: React.DragEvent<HTMLDivElement>) => {
+    event.dataTransfer.setData(CHAT_SESSION_DRAG_TYPE, sessionId);
+    event.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (groupId: string) => (event: React.DragEvent) => {
+    if (!event.dataTransfer.types.includes(CHAT_SESSION_DRAG_TYPE)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDragOverGroup(groupId);
+  };
+
+  const handleDrop = (groupId: string | null) => (event: React.DragEvent) => {
+    event.preventDefault();
+    setDragOverGroup(null);
+    if (!event.dataTransfer.types.includes(CHAT_SESSION_DRAG_TYPE)) return;
+    const sessionId = event.dataTransfer.getData(CHAT_SESSION_DRAG_TYPE);
+    if (recentSessions.some((session) => session.id === sessionId)) {
+      setChatGroups((current) => assignChatGroup(current, sessionId, groupId));
+    }
+  };
+
+  const renderSession = (session: SessionListItem) => (
+    <SessionRow
+      key={session.id}
+      session={session}
+      active={session.id === activeSessionId}
+      isLiveVoiceActive={session.id === activeLiveVoiceSessionId}
+      status={sessionStatuses.get(session.id)}
+      onDragStart={handleDragStart(session.id)}
+      onClick={() => {
+        clearUnread(session.id);
+        handleSessionClick(session.id);
+      }}
+      onRenamed={fetchSessions}
+    />
+  );
 
   if (!isNavExpanded) return null;
 
@@ -354,75 +435,137 @@ export const Navigation: React.FC<{
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col mt-3">
-        <button
-          onClick={() => setIsChatsExpanded((v) => !v)}
-          className="flex items-center gap-1 px-4 py-1 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary transition-colors self-start"
-        >
-          {isChatsExpanded ? (
-            <ChevronDown className="w-3 h-3" />
-          ) : (
-            <ChevronRight className="w-3 h-3" />
-          )}
-          <span>{intl.formatMessage(i18n.chats)}</span>
-        </button>
+        <div className="flex items-center">
+          <button
+            onClick={() => setIsChatsExpanded((v) => !v)}
+            aria-expanded={isChatsExpanded}
+            className="flex items-center gap-1 pl-4 pr-1 py-1 text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary transition-colors"
+          >
+            {isChatsExpanded ? (
+              <ChevronDown className="w-3 h-3" />
+            ) : (
+              <ChevronRight className="w-3 h-3" />
+            )}
+            <span>{intl.formatMessage(i18n.chats)}</span>
+          </button>
+          <button
+            type="button"
+            aria-label={intl.formatMessage(i18n.addGroup)}
+            title={intl.formatMessage(i18n.addGroup)}
+            className="p-1 text-text-secondary hover:text-text-primary"
+            onClick={() => {
+              cancelNewGroupRef.current = false;
+              setIsChatsExpanded(true);
+              setCreatingGroup(true);
+            }}
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
         {isChatsExpanded && (
           <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 mt-1">
-            {recentSessions.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-text-secondary">
-                {intl.formatMessage(isLoadingSessions ? i18n.loadingChats : i18n.noChats)}
-              </div>
-            ) : recentSessionsByProject.length > 1 ? (
-              recentSessionsByProject.map((group: ProjectGroup) => {
-                const isCollapsed = collapsedProjects.has(group.path);
-                return (
-                  <React.Fragment key={group.path}>
-                    <button
-                      onClick={() => toggleProjectCollapsed(group.path)}
-                      aria-expanded={!isCollapsed}
-                      className="flex items-center gap-1 w-full px-3 pt-2 pb-0.5 text-[10px] uppercase tracking-wider text-text-tertiary hover:text-text-secondary transition-colors"
-                      title={group.path}
-                    >
-                      {isCollapsed ? (
-                        <ChevronRight className="w-3 h-3 flex-shrink-0" />
-                      ) : (
-                        <ChevronDown className="w-3 h-3 flex-shrink-0" />
-                      )}
-                      <span className="truncate">{group.label}</span>
-                    </button>
-                    {!isCollapsed &&
-                      group.sessions.map((session) => (
-                        <SessionRow
-                          key={session.id}
-                          session={session}
-                          active={session.id === activeSessionId}
-                          isLiveVoiceActive={session.id === activeLiveVoiceSessionId}
-                          status={sessionStatuses.get(session.id)}
-                          onClick={() => {
-                            clearUnread(session.id);
-                            handleSessionClick(session.id);
-                          }}
-                          onRenamed={fetchSessions}
-                        />
-                      ))}
-                  </React.Fragment>
-                );
-              })
-            ) : (
-              recentSessions.map((session) => (
-                <SessionRow
-                  key={session.id}
-                  session={session}
-                  active={session.id === activeSessionId}
-                  isLiveVoiceActive={session.id === activeLiveVoiceSessionId}
-                  status={sessionStatuses.get(session.id)}
-                  onClick={() => {
-                    clearUnread(session.id);
-                    handleSessionClick(session.id);
-                  }}
-                  onRenamed={fetchSessions}
-                />
-              ))
+            {creatingGroup && (
+              <input
+                autoFocus
+                aria-label={intl.formatMessage(i18n.groupName)}
+                placeholder={intl.formatMessage(i18n.groupName)}
+                maxLength={200}
+                value={newGroupName}
+                onChange={(event) => setNewGroupName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur();
+                  if (event.key === 'Escape') {
+                    cancelNewGroupRef.current = true;
+                    event.currentTarget.blur();
+                  }
+                }}
+                onBlur={saveNewGroup}
+                className="mx-3 my-1 min-w-0 w-[calc(100%-1.5rem)] rounded border border-border-secondary bg-background-primary px-2 py-1 text-sm text-text-primary"
+              />
             )}
+            <>
+              {recentChatsByGroup.groups.map((group) => (
+                <div
+                  key={group.id}
+                  onDragOver={handleDragOver(group.id)}
+                  onDragLeave={() => setDragOverGroup(null)}
+                  onDrop={handleDrop(group.id)}
+                  className={cn(
+                    'rounded-md',
+                    dragOverGroup === group.id && 'bg-background-tertiary'
+                  )}
+                >
+                  <div className="flex items-center gap-1 px-2 pt-2 pb-0.5">
+                    <button
+                      type="button"
+                      aria-label={`${group.name} (${group.sessions.length})`}
+                      aria-expanded={!collapsedGroups.has(group.id)}
+                      onClick={() =>
+                        setCollapsedGroups((current) => {
+                          const next = new Set(current);
+                          if (next.has(group.id)) next.delete(group.id);
+                          else next.add(group.id);
+                          return next;
+                        })
+                      }
+                      className="text-text-tertiary hover:text-text-secondary"
+                    >
+                      {collapsedGroups.has(group.id) ? (
+                        <ChevronRight className="w-3 h-3" />
+                      ) : (
+                        <ChevronDown className="w-3 h-3" />
+                      )}
+                    </button>
+                    <InlineEditText
+                      value={group.name}
+                      onSave={async (name) =>
+                        setChatGroups((current) => renameChatGroup(current, group.id, name))
+                      }
+                      singleClickEdit={false}
+                      className="min-w-0 flex-1 truncate text-[10px] uppercase tracking-wider text-text-tertiary"
+                      editClassName="!text-xs"
+                    />
+                    <button
+                      type="button"
+                      title={intl.formatMessage(i18n.deleteGroup)}
+                      aria-label={`${intl.formatMessage(i18n.deleteGroup)}: ${group.name}`}
+                      className="text-text-tertiary hover:text-text-primary"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            intl.formatMessage(i18n.confirmDeleteGroup, { name: group.name })
+                          )
+                        ) {
+                          setChatGroups((current) => deleteChatGroup(current, group.id));
+                        }
+                      }}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                  {!collapsedGroups.has(group.id) && group.sessions.map(renderSession)}
+                </div>
+              ))}
+              <div
+                onDragOver={handleDragOver('ungrouped')}
+                onDragLeave={() => setDragOverGroup(null)}
+                onDrop={handleDrop(null)}
+                className={cn(
+                  'rounded-md',
+                  dragOverGroup === 'ungrouped' && 'bg-background-tertiary'
+                )}
+              >
+                <div className="px-3 pt-2 pb-0.5 text-[10px] uppercase tracking-wider text-text-tertiary">
+                  {intl.formatMessage(i18n.ungrouped)}
+                </div>
+                {recentChatsByGroup.ungrouped.map(renderSession)}
+              </div>
+              {recentSessions.length === 0 && (
+                <div className="px-3 py-2 text-xs text-text-secondary">
+                  {intl.formatMessage(isLoadingSessions ? i18n.loadingChats : i18n.noChats)}
+                </div>
+              )}
+            </>
           </div>
         )}
       </div>

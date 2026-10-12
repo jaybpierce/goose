@@ -2405,8 +2405,20 @@
   "navigation.itemSkills": {
     "defaultMessage": "Skills"
   },
+  "navigationPanel.addGroup": {
+    "defaultMessage": "New chat group"
+  },
   "navigationPanel.chats": {
     "defaultMessage": "Chats"
+  },
+  "navigationPanel.confirmDeleteGroup": {
+    "defaultMessage": "Delete group “{name}”? Its chats will move to Ungrouped."
+  },
+  "navigationPanel.deleteGroup": {
+    "defaultMessage": "Delete group"
+  },
+  "navigationPanel.groupName": {
+    "defaultMessage": "Group name"
   },
   "navigationPanel.loadingChats": {
     "defaultMessage": "Loading chats…"
@@ -2440,6 +2452,9 @@
   },
   "navigationPanel.statusUnread": {
     "defaultMessage": "Unread activity"
+  },
+  "navigationPanel.ungrouped": {
+    "defaultMessage": "Ungrouped"
   },
   "navigationPanel.untitledSession": {
     "defaultMessage": "Untitled session"

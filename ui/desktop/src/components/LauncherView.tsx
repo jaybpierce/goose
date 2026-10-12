@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react';
 import { defineMessages, useIntl } from '../i18n';
-import { getInitialWorkingDir } from '../utils/workingDir';
 
 const messages = defineMessages({
   placeholder: {
@@ -19,7 +18,7 @@ export default function LauncherView() {
     if (query.trim()) {
       const initialMessage = query;
       setQuery('');
-      window.electron.createChatWindow({ query: initialMessage, dir: getInitialWorkingDir() });
+      window.electron.createChatWindow({ query: initialMessage });
       setTimeout(() => {
         window.electron.closeWindow();
       }, 200);

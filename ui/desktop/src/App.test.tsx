@@ -171,6 +171,7 @@ const mockElectron = {
   createChatWindow: vi.fn(),
   getSetting: vi.fn().mockResolvedValue(null),
   setSetting: vi.fn().mockResolvedValue(undefined),
+  resolveDefaultNewSessionDirectory: vi.fn().mockResolvedValue('/test/default'),
 };
 
 // Mock appConfig
@@ -290,6 +291,24 @@ describe('App Component - Brand New State', () => {
 
     // Should not navigate anywhere since provider is configured and we're already at "/"
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('uses the saved default for a new prompted session without an explicit directory', async () => {
+    mockAppConfig.get.mockImplementation((key: string): string | null => {
+      if (key === 'GOOSE_WORKING_DIR') return '/test/dir';
+      if (key === 'recipeId') return 'recipe-1';
+      return null;
+    });
+    vi.mocked(createSession).mockResolvedValueOnce({ id: 'new-session' } as never);
+
+    render(<PairRouteWrapper activeSessions={[]} setActiveSessions={vi.fn()} />, {
+      wrapper: AppInnerTestWrapper,
+    });
+
+    await waitFor(() =>
+      expect(createSession).toHaveBeenCalledWith('/test/default', expect.anything())
+    );
+    expect(mockElectron.resolveDefaultNewSessionDirectory).toHaveBeenCalledWith('/test/dir');
   });
 
   it('shows the scoped-parameter incompatibility before returning home', async () => {

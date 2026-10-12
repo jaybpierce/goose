@@ -1,3 +1,4 @@
+import DefaultDirectorySection from './DefaultDirectorySection';
 import { ModeSection } from '../mode/ModeSection';
 import { DictationSettings } from '../dictation/DictationSettings';
 import { SecurityToggle } from '../security/SecurityToggle';
@@ -33,6 +34,11 @@ export default function ChatSettingsSection() {
 
   return (
     <div className="space-y-4 pr-4 pb-8 mt-1">
+      <Card className="pb-2 rounded-lg">
+        <CardContent className="px-2">
+          <DefaultDirectorySection />
+        </CardContent>
+      </Card>
       <Card className="pb-2 rounded-lg">
         <CardHeader className="pb-0">
           <CardTitle className="">{intl.formatMessage(i18n.modeTitle)}</CardTitle>

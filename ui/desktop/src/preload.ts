@@ -104,6 +104,8 @@ type ElectronAPI = {
   getConfig: () => Record<string, unknown>;
   hideWindow: () => void;
   directoryChooser: () => Promise<Electron.OpenDialogReturnValue>;
+  checkLocalDirectory: (directory: string) => Promise<boolean>;
+  resolveDefaultNewSessionDirectory: (currentDir: string) => Promise<string>;
   createChatWindow: (options?: CreateChatWindowOptions) => void;
   logInfo: (txt: string) => void;
   showNotification: (data: NotificationData) => void;
@@ -205,6 +207,10 @@ const electronAPI: ElectronAPI = {
   },
   hideWindow: () => ipcRenderer.send('hide-window'),
   directoryChooser: () => ipcRenderer.invoke('directory-chooser'),
+  checkLocalDirectory: (directory: string) =>
+    ipcRenderer.invoke('check-local-directory', directory),
+  resolveDefaultNewSessionDirectory: (currentDir: string) =>
+    ipcRenderer.invoke('resolve-default-new-session-directory', currentDir),
   createChatWindow: (options?: CreateChatWindowOptions) =>
     ipcRenderer.send('create-chat-window', options || {}),
   logInfo: (txt: string) => ipcRenderer.send('logInfo', txt),

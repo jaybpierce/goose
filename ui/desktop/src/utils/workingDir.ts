@@ -18,8 +18,7 @@ export const getInitialWorkingDir = (): string => {
  * use the configured directory (matching getActiveExternalBackend), while
  * settings-mode backends require the window-bound backend to still match.
  */
-export const getEffectiveWorkingDir = async (): Promise<string> => {
-  const initial = getInitialWorkingDir();
+export const getEffectiveWorkingDir = async (initial = getInitialWorkingDir()): Promise<string> => {
   const boundUrl = window.appConfig?.get('GOOSE_EXTERNAL_BACKEND_URL') as string | undefined;
   const source = window.appConfig?.get('GOOSE_EXTERNAL_BACKEND_SOURCE') as string | undefined;
   if (window.appConfig?.get('GOOSE_EXTERNAL_BACKEND') !== true || !boundUrl) {
@@ -57,3 +56,18 @@ export const resolveWorkingDir = (
   requestedWorkingDir: string | undefined,
   homeDir: string
 ): string => externalWorkingDir?.trim() || requestedWorkingDir || homeDir;
+
+export const getRequestedWorkingDir = (): string | undefined => {
+  const requested = window.appConfig?.get('REQUEST_DIR') as string | undefined;
+  return requested?.trim() ? requested : undefined;
+};
+
+export const getDefaultNewSessionWorkingDir = async (ignoreRequested = false): Promise<string> => {
+  const current = getInitialWorkingDir();
+  const isExternalBackend = window.appConfig?.get('GOOSE_EXTERNAL_BACKEND') === true;
+  const localDefault =
+    (getRequestedWorkingDir() && !ignoreRequested) || isExternalBackend
+      ? current
+      : await window.electron.resolveDefaultNewSessionDirectory(current);
+  return getEffectiveWorkingDir(localDefault);
+};

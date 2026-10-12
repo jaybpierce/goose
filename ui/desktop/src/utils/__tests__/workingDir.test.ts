@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { getEffectiveWorkingDir, resolveWorkingDir } from '../workingDir';
+import {
+  getDefaultNewSessionWorkingDir,
+  getEffectiveWorkingDir,
+  resolveWorkingDir,
+} from '../workingDir';
 
 describe('resolveWorkingDir', () => {
   it('uses the configured external backend directory when present', () => {
@@ -14,6 +18,7 @@ describe('resolveWorkingDir', () => {
 describe('getEffectiveWorkingDir', () => {
   const getSettingMock = vi.fn();
   const appConfigGetMock = vi.fn();
+  const resolveDefaultMock = vi.fn();
 
   const mockWindow = (externalBackend: boolean, boundUrl: string, source = 'settings') => {
     appConfigGetMock.mockImplementation((key: string) => {
@@ -28,10 +33,57 @@ describe('getEffectiveWorkingDir', () => {
   beforeEach(() => {
     getSettingMock.mockReset();
     appConfigGetMock.mockReset();
+    resolveDefaultMock.mockReset();
+    resolveDefaultMock.mockResolvedValue('/Users/johannes/default');
     (globalThis as Record<string, unknown>).window = {
       appConfig: { get: appConfigGetMock },
-      electron: { getSetting: getSettingMock },
+      electron: {
+        getSetting: getSettingMock,
+        resolveDefaultNewSessionDirectory: resolveDefaultMock,
+      },
     } as unknown as typeof globalThis;
+  });
+
+  it('resolves a fresh chat through the persisted local default', async () => {
+    mockWindow(false, '');
+    await expect(getDefaultNewSessionWorkingDir()).resolves.toBe('/Users/johannes/default');
+    expect(resolveDefaultMock).toHaveBeenCalledWith('/Users/johannes/home/workspace');
+  });
+
+  it('keeps explicit window selection instead of the saved default', async () => {
+    mockWindow(false, '');
+    appConfigGetMock.mockImplementation((key: string) =>
+      key === 'GOOSE_WORKING_DIR' ? '/chosen' : key === 'REQUEST_DIR' ? '/chosen' : undefined
+    );
+    await expect(getDefaultNewSessionWorkingDir()).resolves.toBe('/chosen');
+    expect(resolveDefaultMock).not.toHaveBeenCalled();
+  });
+
+  it('lets a Quick Launcher chat ignore a directory chosen for its target window', async () => {
+    mockWindow(false, '');
+    appConfigGetMock.mockImplementation((key: string) =>
+      key === 'GOOSE_WORKING_DIR' ? '/chosen' : key === 'REQUEST_DIR' ? '/chosen' : undefined
+    );
+    await expect(getDefaultNewSessionWorkingDir(true)).resolves.toBe('/Users/johannes/default');
+    expect(resolveDefaultMock).toHaveBeenCalledWith('/chosen');
+  });
+
+  it('preserves remote backend precedence over a local default', async () => {
+    mockWindow(true, 'http://remote:3000');
+    getSettingMock.mockResolvedValue({
+      enabled: true,
+      url: 'http://remote:3000',
+      workingDir: '/remote/workspace',
+    });
+    await expect(getDefaultNewSessionWorkingDir()).resolves.toBe('/remote/workspace');
+    expect(resolveDefaultMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps an external backend window directory when no remote directory is configured', async () => {
+    mockWindow(true, 'http://remote:3000');
+    getSettingMock.mockResolvedValue({ enabled: true, url: 'http://remote:3000', workingDir: '' });
+    await expect(getDefaultNewSessionWorkingDir()).resolves.toBe('/Users/johannes/home/workspace');
+    expect(resolveDefaultMock).not.toHaveBeenCalled();
   });
 
   it('prefers the configured remote directory when bound to the matching external backend', async () => {

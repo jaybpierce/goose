@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router';
 import { useChatContext } from '../contexts/ChatContext';
 import { getSessionDisplayName } from '../sessions';
@@ -9,7 +9,6 @@ import {
   acpListRecentSessions,
   type SessionListItem,
 } from '../acp/sessions';
-import { groupSessionsByProject } from '../utils/projectSessions';
 
 const MAX_RECENT_SESSIONS = 25;
 
@@ -63,10 +62,6 @@ export function useNavigationSessions() {
   const [recentSessions, setRecentSessions] = useState<SessionListItem[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const latestFetchIdRef = useRef(0);
-  const recentSessionsByProject = useMemo(
-    () => groupSessionsByProject(recentSessions),
-    [recentSessions]
-  );
   const lastSessionIdRef = useRef<string | null>(null);
 
   const activeSessionId = searchParams.get('resumeSessionId') ?? undefined;
@@ -223,7 +218,6 @@ export function useNavigationSessions() {
 
   return {
     recentSessions,
-    recentSessionsByProject,
     isLoadingSessions,
     activeSessionId,
     fetchSessions,

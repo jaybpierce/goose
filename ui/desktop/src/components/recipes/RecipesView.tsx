@@ -40,7 +40,7 @@ import { CronPicker } from '../schedule/CronPicker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { SearchView } from '../conversation/SearchView';
 import cronstrue from 'cronstrue';
-import { getInitialWorkingDir } from '../../utils/workingDir';
+import { getDefaultNewSessionWorkingDir, getRequestedWorkingDir } from '../../utils/workingDir';
 import {
   trackRecipeDeleted,
   trackRecipeStarted,
@@ -381,7 +381,7 @@ export default function RecipesView() {
 
   const handleStartRecipeChat = async (recipeId: string) => {
     try {
-      const session = await createSession(getInitialWorkingDir(), { recipeId });
+      const session = await createSession(await getDefaultNewSessionWorkingDir(), { recipeId });
       trackRecipeStarted(true, undefined, false);
 
       window.dispatchEvent(new CustomEvent(AppEvents.SESSION_CREATED, { detail: { session } }));
@@ -408,7 +408,7 @@ export default function RecipesView() {
   const handleStartRecipeChatInNewWindow = async (recipeId: string) => {
     try {
       window.electron.createChatWindow({
-        dir: getInitialWorkingDir(),
+        dir: getRequestedWorkingDir(),
         viewType: 'pair',
         recipeId,
       });
